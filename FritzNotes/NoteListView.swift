@@ -111,6 +111,12 @@ struct NoteRowView: View {
                 Text(formattedDate)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if note.totalTasks > 0 {
+                    Label("\(note.doneTasks)/\(note.totalTasks)", systemImage: "checklist")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
+                        .foregroundStyle(note.doneTasks == note.totalTasks ? Color.accentColor : .secondary)
+                }
                 if !note.preview.isEmpty {
                     Text(note.preview)
                         .font(.caption)
