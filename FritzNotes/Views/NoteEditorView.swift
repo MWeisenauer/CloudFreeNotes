@@ -9,7 +9,32 @@ struct NoteEditorView: View {
     @State private var draft: Note
     @State private var isSaving = false
     @State private var errorMessage: String?
-    @FocusState private var focusedTaskID: UUID?
+    @State private var showFreeText: Bool = false
+    @FocusState private var focusedTaskID: Int?
+    @FocusState private var freeTextFocused: Bool
+
+    private var freeText: String {
+        draft.body.components(separatedBy: "\n")
+            .filter { ChecklistParser.parse(line: $0) == nil }
+            .joined(separator: "\n")
+    }
+
+    private var freeTextBinding: Binding<String> {
+        Binding(
+            get: { freeText },
+            set: { newValue in
+                let checklistLines = draft.body.components(separatedBy: "\n")
+                    .filter { ChecklistParser.parse(line: $0) != nil }
+                if checklistLines.isEmpty {
+                    draft.body = newValue
+                } else if newValue.isEmpty {
+                    draft.body = checklistLines.joined(separator: "\n")
+                } else {
+                    draft.body = newValue + "\n" + checklistLines.joined(separator: "\n")
+                }
+            }
+        )
+    }
 
     init(note: Note?) {
         self.existing = note
@@ -33,18 +58,24 @@ struct NoteEditorView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    if !draft.checklistItems.isEmpty {
-                        checklistSection
-                        Divider()
+                    let hasTasks = !draft.checklistItems.isEmpty
+                    let showText = !hasTasks || !freeText.isEmpty || showFreeText
+                    if showText {
+                        TextEditor(text: freeTextBinding)
+                            .frame(minHeight: hasTasks ? 100 : 200)
+                            .padding(.horizontal, 4)
+                            .focused($freeTextFocused)
                     }
-
-                    TextEditor(text: $draft.body)
-                        .frame(minHeight: 200)
-                        .padding(.horizontal, 4)
+                    if hasTasks {
+                        if showText { Divider() }
+                        checklistSection
+                    }
+                    Color.clear.frame(height: 120)
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
         .navigationTitle(existing == nil ? "Neue Notiz" : "Notiz bearbeiten")
         .navigationBarTitleDisplayMode(.inline)
@@ -71,6 +102,11 @@ struct NoteEditorView: View {
                     addNewTask()
                 } label: {
                     Label("Aufgabe", systemImage: "checklist")
+                }
+                Button {
+                    addFreeText()
+                } label: {
+                    Label("Text", systemImage: "text.alignleft")
                 }
                 Spacer()
             }
@@ -105,6 +141,7 @@ struct NoteEditorView: View {
             ForEach(draft.checklistItems) { item in
                 ChecklistRow(
                     item: item,
+                    focus: $focusedTaskID,
                     onToggle: { draft.toggleTask(at: item.lineIndex) },
                     onTextChange: { newText in draft.updateTaskText(at: item.lineIndex, to: newText) },
                     onDelete: { draft.removeTask(at: item.lineIndex) }
@@ -115,8 +152,16 @@ struct NoteEditorView: View {
 
     private func addNewTask() {
         draft.appendTask("")
-        if let newID = draft.checklistItems.last?.id {
-            focusedTaskID = newID
+        DispatchQueue.main.async {
+            focusedTaskID = draft.checklistItems.last?.id
+        }
+    }
+
+    private func addFreeText() {
+        showFreeText = true
+        focusedTaskID = nil
+        DispatchQueue.main.async {
+            freeTextFocused = true
         }
     }
 
@@ -137,14 +182,16 @@ struct NoteEditorView: View {
 
 private struct ChecklistRow: View {
     let item: ChecklistItem
+    @FocusState.Binding var focus: Int?
     let onToggle: () -> Void
     let onTextChange: (String) -> Void
     let onDelete: () -> Void
 
     @State private var text: String
 
-    init(item: ChecklistItem, onToggle: @escaping () -> Void, onTextChange: @escaping (String) -> Void, onDelete: @escaping () -> Void) {
+    init(item: ChecklistItem, focus: FocusState<Int?>.Binding, onToggle: @escaping () -> Void, onTextChange: @escaping (String) -> Void, onDelete: @escaping () -> Void) {
         self.item = item
+        self._focus = focus
         self.onToggle = onToggle
         self.onTextChange = onTextChange
         self.onDelete = onDelete
@@ -160,7 +207,8 @@ private struct ChecklistRow: View {
             }
             .buttonStyle(.plain)
 
-            TextField("Aufgabe", text: $text, onCommit: { onTextChange(text) })
+            TextField("Aufgabe", text: $text)
+                .focused($focus, equals: item.id)
                 .strikethrough(item.isDone, color: .secondary)
                 .foregroundStyle(item.isDone ? .secondary : .primary)
                 .onChange(of: text) { _, newValue in onTextChange(newValue) }

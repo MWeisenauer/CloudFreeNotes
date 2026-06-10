@@ -19,10 +19,10 @@ struct Note: Identifiable, Equatable {
 // MARK: - Checklist
 
 struct ChecklistItem: Identifiable, Equatable {
-    let id = UUID()
     var text: String
     var isDone: Bool
     var lineIndex: Int
+    var id: Int { lineIndex }
 }
 
 enum ChecklistParser {
@@ -30,16 +30,20 @@ enum ChecklistParser {
     static let donePrefix = "- [x] "
 
     static func parse(line: String) -> (isDone: Bool, text: String)? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        if trimmed.hasPrefix(openPrefix) {
-            return (false, String(trimmed.dropFirst(openPrefix.count)))
+        let chars = Array(line.drop(while: { $0 == " " || $0 == "\t" }))
+        guard chars.count >= 5,
+              chars[0] == "-", chars[1] == " ", chars[2] == "[", chars[4] == "]" else {
+            return nil
         }
-        let lower = trimmed.lowercased()
-        if lower.hasPrefix(donePrefix) {
-            let start = trimmed.index(trimmed.startIndex, offsetBy: donePrefix.count)
-            return (true, String(trimmed[start...]))
+        let isDone: Bool
+        switch chars[3] {
+        case " ":      isDone = false
+        case "x", "X": isDone = true
+        default:       return nil
         }
-        return nil
+        var textStart = 5
+        if textStart < chars.count && chars[textStart] == " " { textStart += 1 }
+        return (isDone, String(chars[textStart...]))
     }
 }
 
