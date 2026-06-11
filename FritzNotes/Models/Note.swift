@@ -1,6 +1,6 @@
 import Foundation
 
-struct Note: Identifiable, Equatable {
+nonisolated struct Note: Identifiable, Equatable, Sendable {
     var id = UUID()
     var title: String = ""
     var body: String = ""
@@ -18,14 +18,14 @@ struct Note: Identifiable, Equatable {
 
 // MARK: - Checklist
 
-struct ChecklistItem: Identifiable, Equatable {
+nonisolated struct ChecklistItem: Identifiable, Equatable, Sendable {
     var text: String
     var isDone: Bool
     var lineIndex: Int
     var id: Int { lineIndex }
 }
 
-enum ChecklistParser {
+nonisolated enum ChecklistParser {
     static let openPrefix = "- [ ] "
     static let donePrefix = "- [x] "
 

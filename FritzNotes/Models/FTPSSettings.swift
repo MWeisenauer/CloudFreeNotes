@@ -1,6 +1,6 @@
 import Foundation
 
-struct FTPSSettings: Codable {
+nonisolated struct FTPSSettings: Codable, Sendable {
     var host: String = ""
     var port: Int = 21
     var username: String = ""
