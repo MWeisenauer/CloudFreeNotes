@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		28DFD6832FBDF7B800FD3C66 /* FritzNotes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FritzNotes.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		28DFD6832FBDF7B800FD3C66 /* CloudFreeNotes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CloudFreeNotes.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -40,7 +40,7 @@
 		28DFD6842FBDF7B800FD3C66 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				28DFD6832FBDF7B800FD3C66 /* FritzNotes.app */,
+				28DFD6832FBDF7B800FD3C66 /* CloudFreeNotes.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,9 +48,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		28DFD6822FBDF7B800FD3C66 /* FritzNotes */ = {
+		28DFD6822FBDF7B800FD3C66 /* CloudFreeNotes */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 28DFD6932FBDF7B800FD3C66 /* Build configuration list for PBXNativeTarget "FritzNotes" */;
+			buildConfigurationList = 28DFD6932FBDF7B800FD3C66 /* Build configuration list for PBXNativeTarget "CloudFreeNotes" */;
 			buildPhases = (
 				28DFD67F2FBDF7B800FD3C66 /* Sources */,
 				28DFD6802FBDF7B800FD3C66 /* Frameworks */,
@@ -63,11 +63,11 @@
 			fileSystemSynchronizedGroups = (
 				28DFD6852FBDF7B800FD3C66 /* FritzNotes */,
 			);
-			name = FritzNotes;
+			name = CloudFreeNotes;
 			packageProductDependencies = (
 			);
 			productName = FritzNotes;
-			productReference = 28DFD6832FBDF7B800FD3C66 /* FritzNotes.app */;
+			productReference = 28DFD6832FBDF7B800FD3C66 /* CloudFreeNotes.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -85,7 +85,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 28DFD67E2FBDF7B800FD3C66 /* Build configuration list for PBXProject "FritzNotes" */;
+			buildConfigurationList = 28DFD67E2FBDF7B800FD3C66 /* Build configuration list for PBXProject "CloudFreeNotes" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -99,7 +99,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				28DFD6822FBDF7B800FD3C66 /* FritzNotes */,
+				28DFD6822FBDF7B800FD3C66 /* CloudFreeNotes */,
 			);
 		};
 /* End PBXProject section */
@@ -257,6 +257,7 @@
 				DEVELOPMENT_TEAM = 2RA4PJBVUC;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "CloudFree Notes";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -293,6 +294,7 @@
 				DEVELOPMENT_TEAM = 2RA4PJBVUC;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "CloudFree Notes";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -321,7 +323,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		28DFD67E2FBDF7B800FD3C66 /* Build configuration list for PBXProject "FritzNotes" */ = {
+		28DFD67E2FBDF7B800FD3C66 /* Build configuration list for PBXProject "CloudFreeNotes" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				28DFD6912FBDF7B800FD3C66 /* Debug */,
@@ -330,7 +332,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		28DFD6932FBDF7B800FD3C66 /* Build configuration list for PBXNativeTarget "FritzNotes" */ = {
+		28DFD6932FBDF7B800FD3C66 /* Build configuration list for PBXNativeTarget "CloudFreeNotes" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				28DFD6942FBDF7B800FD3C66 /* Debug */,
