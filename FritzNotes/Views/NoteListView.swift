@@ -103,27 +103,28 @@ struct NoteRowView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(note.displayTitle)
                 .font(.headline)
                 .lineLimit(1)
-            HStack(spacing: 6) {
-                Text(formattedDate)
+            if note.totalTasks > 0 {
+                HStack(spacing: 8) {
+                    Label("\(note.doneTasks)/\(note.totalTasks) erledigt", systemImage: "checkmark")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.orange)
+                    ProgressView(value: Double(note.doneTasks), total: Double(note.totalTasks))
+                        .tint(.green)
+                }
+            } else if !note.preview.isEmpty {
+                Text(note.preview)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if note.totalTasks > 0 {
-                    Label("\(note.doneTasks)/\(note.totalTasks)", systemImage: "checklist")
-                        .labelStyle(.titleAndIcon)
-                        .font(.caption)
-                        .foregroundStyle(note.doneTasks == note.totalTasks ? Color.accentColor : .secondary)
-                }
-                if !note.preview.isEmpty {
-                    Text(note.preview)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
+                    .lineLimit(1)
             }
+            Text(formattedDate)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
     }
