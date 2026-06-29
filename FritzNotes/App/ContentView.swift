@@ -12,5 +12,6 @@ struct ContentView: View {
                 .tabItem { Label("Einstellungen", systemImage: "gear") }
         }
         .environmentObject(store)
+        .preferredColorScheme(.dark)
     }
 }
