@@ -10,9 +10,22 @@
 		28DFD6832FBDF7B800FD3C66 /* CloudFreeNotes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CloudFreeNotes.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		28DFD6A02FBDF7B800FD3C66 /* Exceptions for "FritzNotes" folder in "CloudFreeNotes" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				CloudFreeNotes.storekit,
+			);
+			target = 28DFD6822FBDF7B800FD3C66 /* CloudFreeNotes */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		28DFD6852FBDF7B800FD3C66 /* FritzNotes */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				28DFD6A02FBDF7B800FD3C66 /* Exceptions for "FritzNotes" folder in "CloudFreeNotes" target */,
+			);
 			path = FritzNotes;
 			sourceTree = "<group>";
 		};
