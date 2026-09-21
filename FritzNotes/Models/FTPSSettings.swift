@@ -6,7 +6,6 @@ nonisolated struct FTPSSettings: Codable, Sendable {
     var username: String = ""
     var password: String = ""
     var remotePath: String = "/"
-    var useImplicitTLS: Bool = false
     var passiveMode: Bool = true
     var trustSelfSignedCertificates: Bool = true
 

@@ -23,10 +23,6 @@ struct SettingsView: View {
                             .keyboardType(.numberPad)
                             .frame(width: 80)
                     }
-                    Toggle("Implizites TLS (ftps://, Port 990)", isOn: $settings.useImplicitTLS)
-                        .onChange(of: settings.useImplicitTLS) { _, enabled in
-                            settings.port = enabled ? 990 : 21
-                        }
                 }
                 Section("Zugangsdaten") {
                     TextField("Benutzername", text: $settings.username)
