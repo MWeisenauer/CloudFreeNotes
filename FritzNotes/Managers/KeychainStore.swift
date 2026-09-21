@@ -4,20 +4,50 @@ import Security
 // Stores small secrets (the FTPS password) in the iOS Keychain instead of
 // UserDefaults. Items are marked `WhenUnlockedThisDeviceOnly` so they are never
 // written to iCloud/iTunes backups and only readable while the device is unlocked.
+//
+// Fuer den Schluessel der Inhaltsverschluesselung hat `ThisDeviceOnly` eine
+// Folge, die man kennen muss: der Eintrag wandert in KEIN Backup und ueberlebt
+// deshalb keinen Geraetewechsel. Beim FTPS-Passwort ist das folgenlos, das
+// tippt man neu ein. Beim Schluessel waere es der Totalverlust – siehe
+// `CryptoKeyStore.backupCode()`.
 nonisolated enum KeychainStore {
 
+    // Unveraendert: hierunter liegt das FTPS-Passwort. Wer diesen Text aendert,
+    // macht das gespeicherte Passwort unauffindbar.
     private static let service = "de.fritznotes.ftps"
 
-    static func setString(_ value: String, for account: String) {
-        guard let data = value.data(using: .utf8) else {
-            removeItem(for: account)
-            return
-        }
-        let query: [String: Any] = [
+    // Gemeinsamer Dienst fuer den App-uebergreifenden Hauptschluessel.
+    // Gleich benannt wie im Reminder – geteilt wird deshalb aber noch nichts,
+    // dafuer muesste `accessGroup` gesetzt sein.
+    static let sharedService = "de.cloudfree.crypto"
+
+    // Geteilte Keychain-Gruppe. Solange hier `nil` steht, bleibt der Schluessel
+    // auf diese App beschraenkt – am 21.09.2026 bewusst so entschieden: der
+    // Reminder hat bereits einen Hauptschluessel in seiner app-eigenen Gruppe,
+    // und ein Umschalten wuerde ihn dort nicht mehr finden lassen.
+    //
+    // Zum Scharfschalten spaeter: in Xcode die Capability „Keychain Sharing"
+    // hinzufuegen (legt die .entitlements-Datei an und setzt
+    // CODE_SIGN_ENTITLEMENTS) und hier "$(AppIdentifierPrefix)de.TimeTec.cloudfree"
+    // eintragen – in BEIDEN Apps. Ohne das Entitlement scheitert jeder
+    // Keychain-Zugriff mit errSecMissingEntitlement.
+    //
+    // ACHTUNG beim spaeteren Umstellen: dann haben Reminder und Notes je einen
+    // eigenen Hauptschluessel unter demselben Kontonamen, aber in getrennten
+    // Gruppen. Einer von beiden muss gewinnen; die Dateien der anderen App
+    // brauchen danach deren Sicherungscode. Das ist kein Selbstlaeufer.
+    static let accessGroup: String? = nil
+
+    // MARK: - Data
+
+    static func setData(_ data: Data, for account: String, service: String = sharedService) {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
+
         let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
@@ -30,29 +60,46 @@ nonisolated enum KeychainStore {
         }
     }
 
-    static func string(for account: String) -> String? {
-        let query: [String: Any] = [
+    static func data(for account: String, service: String = sharedService) -> Data? {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
+        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
+
         var result: AnyObject?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data,
-              let value = String(data: data, encoding: .utf8) else {
+              let data = result as? Data else {
             return nil
         }
-        return value
+        return data
     }
 
-    static func removeItem(for account: String) {
-        let query: [String: Any] = [
+    // MARK: - String
+
+    static func setString(_ value: String, for account: String) {
+        guard let data = value.data(using: .utf8) else {
+            removeItem(for: account)
+            return
+        }
+        setData(data, for: account, service: service)
+    }
+
+    static func string(for account: String) -> String? {
+        guard let data = data(for: account, service: service) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func removeItem(for account: String, service: String = KeychainStore.service) {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
         SecItemDelete(query as CFDictionary)
     }
 }

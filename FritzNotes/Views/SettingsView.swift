@@ -53,6 +53,25 @@ struct SettingsView: View {
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity)
 
+                }
+                Section {
+                    NavigationLink {
+                        EncryptionSetupView()
+                    } label: {
+                        HStack {
+                            Label("Inhaltsverschlüsselung", systemImage: verschluesselungSymbol)
+                            Spacer()
+                            Text(verschluesselungZustand)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Verschlüsselung")
+                } footer: {
+                    Text("FTPS schützt die Leitung. Die Inhaltsverschlüsselung schützt zusätzlich die Dateien selbst – auf dem Server liegen sie dann unlesbar.")
+                }
+                Section {
                     Button {
                         Task { await testConnection() }
                     } label: {
@@ -121,6 +140,16 @@ struct SettingsView: View {
                 Text("Die FTPS-Einstellungen wurden gespeichert.")
             }
         }
+    }
+
+    private var verschluesselungZustand: String {
+        if EncryptionPolicy.mayEncrypt { return "Aktiv" }
+        if CryptoKeyStore.hasMasterKey { return "Eingerichtet" }
+        return "Aus"
+    }
+
+    private var verschluesselungSymbol: String {
+        EncryptionPolicy.mayEncrypt ? "lock.fill" : "lock.open"
     }
 
     // Ein Punkt gilt nur dann als in Ordnung, wenn er wirklich schützt – ein

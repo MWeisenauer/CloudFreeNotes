@@ -141,7 +141,30 @@ actor NoteService {
         }
         try await connect()
         defer { disconnect() }
-        try await storeFile(filename: note.remoteFilename, data: data)
+        let hochzuladen = try prepareForUpload(data, filename: note.remoteFilename)
+        try await storeFile(filename: note.remoteFilename, data: hochzuladen)
+    }
+
+    // Verschluesselt, sofern gekauft, gesichert und ein Schluessel da ist.
+    // Sonst geht der Inhalt wie bisher im Klartext hinaus. Die Umstellung
+    // braucht deshalb keinen Stichtag: der Bestand wandert hinueber, sobald
+    // eine Notiz geschrieben wird.
+    private func prepareForUpload(_ plaintext: Data, filename: String) throws -> Data {
+        guard EncryptionPolicy.mayEncrypt else { return plaintext }
+        let key = try CryptoKeyStore.appKey()
+        return try ContentCrypto.seal(plaintext, filename: filename, using: key)
+    }
+
+    // Die Kennung "CFE1" entscheidet, nicht eine Einstellung: alte
+    // Klartextdateien und neue verschluesselte liegen nebeneinander und werden
+    // beide gelesen.
+    //
+    // Hier wird bewusst NICHT nach der Kaufberechtigung gefragt. Entschluesseln
+    // muss immer moeglich sein – siehe EncryptionPolicy.
+    private func decryptIfNeeded(_ raw: Data, filename: String) throws -> Data {
+        guard ContentCrypto.isEncrypted(raw) else { return raw }
+        let key = try CryptoKeyStore.appKey()
+        return try ContentCrypto.open(raw, filename: filename, using: key)
     }
 
     func deleteNote(filename: String) async throws {
@@ -329,10 +352,11 @@ actor NoteService {
         }
 
         try await dataChannel.awaitReady()
-        let data = try await dataChannel.readAll()
+        let raw = try await dataChannel.readAll()
         dataChannel.cancel()
         _ = try? await readResponse(from: controlTask) // 226
 
+        let data = try decryptIfNeeded(raw, filename: filename)
         guard let content = String(data: data, encoding: .utf8)
                           ?? String(data: data, encoding: .isoLatin1) else {
             throw FTPSError.downloadFailed
