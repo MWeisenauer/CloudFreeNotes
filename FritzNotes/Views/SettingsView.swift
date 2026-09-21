@@ -3,8 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     @State private var settings = FTPSSettings.load()
     @State private var isTesting = false
-    @State private var testResult: String?
-    @State private var testSuccess = false
+    @State private var testReport: ConnectionReport?
+    @State private var testError: String?
     @State private var showSaveConfirmation = false
 
     var body: some View {
@@ -65,14 +65,52 @@ struct SettingsView: View {
                     }
                     .disabled(isTesting || !settings.isConfigured)
                 }
-                if let result = testResult {
+                if let error = testError {
                     Section {
                         HStack(spacing: 10) {
-                            Image(systemName: testSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundStyle(testSuccess ? .green : .red)
-                            Text(result)
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.red)
+                            Text(error)
                                 .font(.callout)
                         }
+                    }
+                }
+                if let report = testReport {
+                    Section("Ergebnis") {
+                        statusRow(
+                            ok: true,
+                            title: "Verbunden",
+                            detail: "\(report.noteCount) Notiz(en) im Verzeichnis"
+                        )
+                        statusRow(
+                            ok: report.controlEncrypted,
+                            title: "Steuerkanal",
+                            detail: report.controlEncrypted
+                                ? "verschlüsselt (AUTH TLS)"
+                                : "unverschlüsselt"
+                        )
+                        // Der wichtigste Punkt: hier laufen die Notizinhalte.
+                        statusRow(
+                            ok: report.dataEncrypted,
+                            title: "Datenkanal",
+                            detail: report.dataEncrypted
+                                ? "verschlüsselt (PROT P)"
+                                : "KLARTEXT – die Notizinhalte gehen offen über die Leitung"
+                        )
+                        statusRow(
+                            ok: true,
+                            title: "Betriebsart",
+                            detail: report.passiveCommand == "EPSV"
+                                ? "EPSV (auch über IPv6)"
+                                : "PASV (nur IPv4)"
+                        )
+                        statusRow(
+                            ok: report.certificateChecked,
+                            title: "Zertifikat",
+                            detail: report.certificateChecked
+                                ? "geprüft"
+                                : "nicht geprüft – schützt vor Mitlesen, nicht vor einem untergeschobenen Server"
+                        )
                     }
                 }
             }
@@ -85,16 +123,31 @@ struct SettingsView: View {
         }
     }
 
+    // Ein Punkt gilt nur dann als in Ordnung, wenn er wirklich schützt – ein
+    // grüner Haken über einem Klartext-Datenkanal wäre irreführend.
+    @ViewBuilder
+    private func statusRow(ok: Bool, title: String, detail: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(ok ? .green : .orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private func testConnection() async {
         settings.save()
         isTesting = true
-        testResult = nil
+        testReport = nil
+        testError = nil
         do {
-            testResult = try await NoteService(settings: settings).testConnection()
-            testSuccess = true
+            testReport = try await NoteService(settings: settings).testConnection()
         } catch {
-            testResult = error.localizedDescription
-            testSuccess = false
+            testError = error.localizedDescription
         }
         isTesting = false
     }

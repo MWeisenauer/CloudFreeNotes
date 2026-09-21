@@ -13,6 +13,7 @@ enum FTPSError: LocalizedError {
     case deleteFailed(String)
     case invalidResponse(String)
     case notConnected
+    case dataChannelFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -26,15 +27,17 @@ enum FTPSError: LocalizedError {
         case .deleteFailed(let msg):     return "Löschen fehlgeschlagen: \(msg)"
         case .invalidResponse(let msg):  return "Ungültige Server-Antwort: \(msg)"
         case .notConnected:              return "Nicht mit FTP-Server verbunden."
+        case .dataChannelFailed(let msg): return "Datenkanal: \(msg)"
         }
     }
 }
 
 // MARK: - TLS delegate
 
+// Gilt nur noch fuer die Steuerverbindung: der Datenkanal laeuft ueber
+// NWConnection und kennt diesen Delegate nicht – siehe FTPSDataChannel.
 final class FTPSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
     let allowSelfSigned: Bool
-    nonisolated(unsafe) var dataChannelMode = false
 
     init(allowSelfSigned: Bool) {
         self.allowSelfSigned = allowSelfSigned
@@ -50,7 +53,7 @@ final class FTPSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
             completionHandler(.performDefaultHandling, nil)
             return
         }
-        if allowSelfSigned || dataChannelMode {
+        if allowSelfSigned {
             completionHandler(.useCredential, URLCredential(trust: trust))
         } else {
             completionHandler(.performDefaultHandling, nil)
@@ -58,11 +61,33 @@ final class FTPSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
     }
 }
 
+// MARK: - Bericht von "Verbindung testen"
+
+// Beschreibt, was auf der Leitung tatsaechlich passiert ist. Wichtig ist die
+// Trennung: `controlEncrypted` sagt nichts ueber die Dateiinhalte aus, die
+// laufen ueber den Datenkanal. Beides getrennt auszuweisen ist der Zweck
+// dieses Typs – ein gruener Haken allein hat den offenen Datenkanal monatelang
+// verdeckt.
+nonisolated struct ConnectionReport: Sendable {
+    var noteCount: Int
+    var controlEncrypted: Bool      // AUTH TLS auf der Steuerverbindung
+    var dataEncrypted: Bool         // PROT P auf dem Datenkanal
+    var passiveCommand: String      // "EPSV" (IPv6-faehig) oder "PASV"
+    var certificateChecked: Bool    // false, wenn selbstsignierten Zertifikaten vertraut wird
+
+    /// Der Test gilt nur als bestanden, wenn auch die Inhalte geschuetzt sind.
+    var isFullyEncrypted: Bool { controlEncrypted && dataEncrypted }
+}
+
 // MARK: - Note service
 
-// Uses explicit TLS (AUTH TLS) and passive mode (PASV).
-// Data channel encryption is auto-detected: starts with PROT C (unencrypted).
-// If the server responds 425, switches to PROT P (encrypted) and retries transparently.
+// Uses explicit TLS (AUTH TLS) for the control connection and a passive data
+// channel requested with EPSV (IPv6-capable) or PASV.
+//
+// Der Datenkanal ist verschluesselt (PROT P) und laeuft ueber FTPSDataChannel.
+// Nur wenn ein Server das Kommando PROT P selbst zurueckweist, faellt die
+// Verbindung auf Klartext zurueck. Scheitert spaeter der Handschlag, wird der
+// Fehler gemeldet und NICHT still auf Klartext umgeschaltet.
 actor NoteService {
     private let settings: FTPSSettings
 
@@ -70,7 +95,20 @@ actor NoteService {
     private var urlSession: URLSession?
     private var ftpDelegate: FTPSDelegate?
     private var readBuffer = Data()
-    private var encryptDataChannel = false  // auto-set on first 425 response
+    private var encryptDataChannel = true   // PROT P; nur auf Serverwunsch abgeschaltet
+    private var supportsEPSV: Bool?         // nil = not probed yet, set on first data channel
+
+    // An IPv6 literal may be entered with or without brackets; the stream API wants it bare.
+    private var normalizedHost: String {
+        var host = settings.host.trimmingCharacters(in: .whitespaces)
+        if host.hasPrefix("["), host.hasSuffix("]") {
+            host = String(host.dropFirst().dropLast())
+        }
+        return host
+    }
+
+    // A bare IPv6 literal is the only host form containing a colon.
+    private var hostIsIPv6Literal: Bool { normalizedHost.contains(":") }
 
     private let commandTimeout: TimeInterval = 30
     private let readTimeout: TimeInterval    = 30
@@ -118,12 +156,21 @@ actor NoteService {
         }
     }
 
-    func testConnection() async throws -> String {
+    func testConnection() async throws -> ConnectionReport {
         guard settings.isConfigured else { throw FTPSError.notConfigured }
         try await connect()
         defer { disconnect() }
+        // Erst nach listFiles() berichten: dabei ist tatsaechlich etwas durch den
+        // Datenkanal gelaufen. Die blosse Antwort auf PROT P waere ein
+        // Versprechen, keine Messung.
         let filenames = try await listFiles()
-        return "Verbunden! \(filenames.count) Notiz(en) im Verzeichnis."
+        return ConnectionReport(
+            noteCount: filenames.count,
+            controlEncrypted: true,   // ohne 234 auf AUTH TLS kaeme connect() nicht bis hierher
+            dataEncrypted: encryptDataChannel,
+            passiveCommand: supportsEPSV == true ? "EPSV" : "PASV",
+            certificateChecked: !settings.trustSelfSignedCertificates
+        )
     }
 
     // MARK: - Note encoding / decoding
@@ -157,8 +204,9 @@ actor NoteService {
         ftpDelegate = delegate
         urlSession  = session
         readBuffer  = Data()
+        supportsEPSV = nil
 
-        let task = session.streamTask(withHostName: settings.host, port: settings.port)
+        let task = session.streamTask(withHostName: normalizedHost, port: settings.port)
         task.resume()
 
         let banner = try await readResponse(from: task)
@@ -183,10 +231,27 @@ actor NoteService {
 
         try await send("PBSZ 0\r\n", to: task)
         _ = try await readResponse(from: task)
-        // PROT C: unencrypted data channel. Fritz!Box built-in FTP (port 21) responds 200
-        // to PROT P but does not perform TLS on the data channel → handshake deadlock.
-        try await send("PROT C\r\n", to: task)
-        _ = try await readResponse(from: task)
+        // PROT P: verschluesselter Datenkanal – die Dateiinhalte gingen vorher
+        // offen ueber die Leitung.
+        //
+        // Der alte Kommentar hier lastete das der Fritz!Box an ("antwortet 200,
+        // verschluesselt aber nicht"). Das ist widerlegt: die Ursache lagen im
+        // Client – ein fehlender Verify-Block und die falsche Reihenfolge,
+        // Einzelheiten in FTPSDataChannel.
+        //
+        // Zurueckgefallen wird nur, wenn der Server das Kommando selbst
+        // zurueckweist. Genau das stille Zurueckfallen bei einem spaeteren
+        // Fehler hat dafuer gesorgt, dass die Inhalte lange offen uebertragen
+        // wurden, ohne dass es auffiel.
+        try await send("PROT P\r\n", to: task)
+        let protResp = try await readResponse(from: task)
+        if protResp.hasPrefix("2") {
+            encryptDataChannel = true
+        } else {
+            encryptDataChannel = false
+            try await send("PROT C\r\n", to: task)
+            _ = try await readResponse(from: task)
+        }
 
         let path = settings.remotePath.isEmpty ? "/" : settings.remotePath
         if path != "/" {
@@ -211,33 +276,35 @@ actor NoteService {
     // MARK: - FTP operations
 
     private func listFiles() async throws -> [String] {
-        guard let controlTask, let urlSession else { throw FTPSError.notConnected }
+        guard let controlTask else { throw FTPSError.notConnected }
         try await send("TYPE A\r\n", to: controlTask)
         _ = try await readResponse(from: controlTask)
 
-        var dataTask = try await openDataChannel(controlTask: controlTask, session: urlSession)
+        let dataChannel = try await openDataChannel(controlTask: controlTask)
         try await send("NLST\r\n", to: controlTask)
-        var reply = try await readResponse(from: controlTask)
-
-        if reply.hasPrefix("425") {
-            dataTask.cancel()
-            try await upgradeToProtP(controlTask: controlTask)
-            dataTask = try await openDataChannel(controlTask: controlTask, session: urlSession)
-            try await send("NLST\r\n", to: controlTask)
-            reply = try await readResponse(from: controlTask)
-        }
+        let reply = try await readResponse(from: controlTask)
 
         if reply.hasPrefix("226") || reply.hasPrefix("250") {
-            dataTask.cancel()
+            dataChannel.cancel()
             return []
         }
         guard reply.hasPrefix("125") || reply.hasPrefix("150") else {
-            dataTask.cancel()
+            dataChannel.cancel()
             throw FTPSError.connectionFailed("NLST fehlgeschlagen: \(reply)")
         }
 
-        let data = try await readAll(from: dataTask)
-        _ = try? await readResponse(from: controlTask) // 226
+        // Jetzt hat vsftpd den Handschlag begonnen.
+        try await dataChannel.awaitReady()
+        let data = try await dataChannel.readAll()
+        dataChannel.cancel()
+        // Der Abschlusscode wird ausgewertet, nicht verworfen. Bleibt er aus
+        // oder meldet er einen Fehler, kam die Uebertragung nicht zustande –
+        // ohne diese Pruefung waere das von einem leeren Verzeichnis nicht zu
+        // unterscheiden und die App zeigte stillschweigend "keine Notizen".
+        let completion = try await readResponse(from: controlTask)
+        guard completion.hasPrefix("226") || completion.hasPrefix("250") else {
+            throw FTPSError.connectionFailed("Verzeichnisliste unvollständig: \(completion)")
+        }
 
         let listing = String(data: data, encoding: .utf8)
                    ?? String(data: data, encoding: .isoLatin1) ?? ""
@@ -248,28 +315,22 @@ actor NoteService {
     }
 
     private func fetchNote(filename: String) async throws -> Note {
-        guard let controlTask, let urlSession else { throw FTPSError.notConnected }
+        guard let controlTask else { throw FTPSError.notConnected }
         try await send("TYPE I\r\n", to: controlTask)
         _ = try await readResponse(from: controlTask)
 
-        var dataTask = try await openDataChannel(controlTask: controlTask, session: urlSession)
+        let dataChannel = try await openDataChannel(controlTask: controlTask)
         try await send("RETR \(filename)\r\n", to: controlTask)
-        var reply = try await readResponse(from: controlTask)
-
-        if reply.hasPrefix("425") {
-            dataTask.cancel()
-            try await upgradeToProtP(controlTask: controlTask)
-            dataTask = try await openDataChannel(controlTask: controlTask, session: urlSession)
-            try await send("RETR \(filename)\r\n", to: controlTask)
-            reply = try await readResponse(from: controlTask)
-        }
+        let reply = try await readResponse(from: controlTask)
 
         guard reply.hasPrefix("125") || reply.hasPrefix("150") else {
-            dataTask.cancel()
+            dataChannel.cancel()
             throw FTPSError.downloadFailed
         }
 
-        let data = try await readAll(from: dataTask)
+        try await dataChannel.awaitReady()
+        let data = try await dataChannel.readAll()
+        dataChannel.cancel()
         _ = try? await readResponse(from: controlTask) // 226
 
         guard let content = String(data: data, encoding: .utf8)
@@ -280,63 +341,79 @@ actor NoteService {
     }
 
     private func storeFile(filename: String, data: Data) async throws {
-        guard let controlTask, let urlSession else { throw FTPSError.notConnected }
+        guard let controlTask else { throw FTPSError.notConnected }
         try await send("TYPE I\r\n", to: controlTask)
         _ = try await readResponse(from: controlTask)
 
-        var dataTask = try await openDataChannel(controlTask: controlTask, session: urlSession)
+        let dataChannel = try await openDataChannel(controlTask: controlTask)
         try await send("STOR \(filename)\r\n", to: controlTask)
-        var storResp = try await readResponse(from: controlTask)
-
-        if storResp.hasPrefix("425") {
-            dataTask.cancel()
-            try await upgradeToProtP(controlTask: controlTask)
-            dataTask = try await openDataChannel(controlTask: controlTask, session: urlSession)
-            try await send("STOR \(filename)\r\n", to: controlTask)
-            storResp = try await readResponse(from: controlTask)
-        }
+        let storResp = try await readResponse(from: controlTask)
 
         guard storResp.hasPrefix("125") || storResp.hasPrefix("150") else {
-            dataTask.cancel()
+            dataChannel.cancel()
             throw FTPSError.uploadFailed("STOR abgelehnt: \(storResp)")
         }
 
-        try await writeData(data, to: dataTask)
-        dataTask.closeWrite()
+        try await dataChannel.awaitReady()
+        try await dataChannel.write(data)
+        dataChannel.closeWrite()
 
         let completeResp = (try? await readResponse(from: controlTask)) ?? "226 implicit"
+        dataChannel.cancel()
         if !completeResp.hasPrefix("226") && !completeResp.hasPrefix("250")
             && !completeResp.hasPrefix("4") && !completeResp.hasPrefix("5") {
             throw FTPSError.uploadFailed("Keine Transfer-Bestätigung: \(completeResp)")
         }
     }
 
-    // Switches to encrypted data channel (PROT P) after a 425 response.
-    // Subsequent openDataChannel calls will use startSecureConnection().
-    private func upgradeToProtP(controlTask: URLSessionStreamTask) async throws {
-        encryptDataChannel = true
-        try await send("PROT P\r\n", to: controlTask)
-        _ = try await readResponse(from: controlTask)
-    }
-
     // MARK: - Passive data channel
 
     private func openDataChannel(
-        controlTask: URLSessionStreamTask,
-        session: URLSession
-    ) async throws -> URLSessionStreamTask {
+        controlTask: URLSessionStreamTask
+    ) async throws -> FTPSDataChannel {
+        let port = try await requestPassivePort(controlTask: controlTask)
+        // The address from the server is ignored either way: PASV can only express IPv4 and the
+        // Fritz!Box sometimes answers 0.0.0.0 or its WAN address, EPSV returns no address at all.
+        // The data channel always goes back to the host the control connection already reached.
+        let dataChannel = try FTPSDataChannel(
+            host: normalizedHost,
+            port: port,
+            useTLS: encryptDataChannel,
+            trustSelfSigned: settings.trustSelfSignedCertificates,
+            timeout: dataTimeout
+        )
+        // Stoesst den Aufbau an, wartet aber NICHT auf den Handschlag: vsftpd
+        // beginnt ihn erst nach dem Uebertragungsbefehl. Auf .ready wird nach
+        // dem 150 gewartet – siehe FTPSDataChannel.start().
+        dataChannel.start()
+        return dataChannel
+    }
+
+    // EPSV (RFC 2428) first: it is the only passive command that works over IPv6, and it is
+    // answered by vsftpd. PASV stays as the fallback for servers that reject EPSV — the
+    // Fritz!Box does not list it in FEAT — but PASV cannot carry an IPv6 address, so over
+    // IPv6 a refused EPSV is a hard error rather than a silent fallback into a timeout.
+    private func requestPassivePort(controlTask: URLSessionStreamTask) async throws -> Int {
+        if supportsEPSV != false {
+            try await send("EPSV\r\n", to: controlTask)
+            let epsvResp = try await readResponse(from: controlTask)
+            if epsvResp.hasPrefix("229") {
+                supportsEPSV = true
+                return try parseEPSV(epsvResp)
+            }
+            supportsEPSV = false
+            if hostIsIPv6Literal {
+                throw FTPSError.connectionFailed(
+                    "Server beherrscht EPSV nicht – über IPv6 ist keine Datenverbindung möglich: \(epsvResp)")
+            }
+        }
+
         try await send("PASV\r\n", to: controlTask)
         let pasvResp = try await readResponse(from: controlTask)
         guard pasvResp.hasPrefix("227") else {
             throw FTPSError.connectionFailed("PASV fehlgeschlagen: \(pasvResp)")
         }
-        let (_, port) = try parsePASV(pasvResp)
-        // Ignore the IP from PASV — Fritz!Box sometimes returns 0.0.0.0 or external WAN IP.
-        ftpDelegate?.dataChannelMode = encryptDataChannel
-        let dataTask = session.streamTask(withHostName: settings.host, port: port)
-        dataTask.resume()
-        if encryptDataChannel { dataTask.startSecureConnection() }
-        return dataTask
+        return try parsePASV(pasvResp).1
     }
 
     // MARK: - Low-level I/O
@@ -345,14 +422,6 @@ actor NoteService {
         let data = Data(command.utf8)
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             task.write(data, timeout: commandTimeout) { error in
-                if let error { cont.resume(throwing: error) } else { cont.resume() }
-            }
-        }
-    }
-
-    private func writeData(_ data: Data, to task: URLSessionStreamTask) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            task.write(data, timeout: dataTimeout) { error in
                 if let error { cont.resume(throwing: error) } else { cont.resume() }
             }
         }
@@ -389,22 +458,27 @@ actor NoteService {
         }
     }
 
-    private func readAll(from task: URLSessionStreamTask) async throws -> Data {
-        var result = Data()
-        while true {
-            let (chunk, eof): (Data?, Bool) = try await withCheckedThrowingContinuation { cont in
-                task.readData(ofMinLength: 1, maxLength: 65536, timeout: dataTimeout) { data, atEOF, error in
-                    if let error { cont.resume(throwing: error) }
-                    else { cont.resume(returning: (data, atEOF)) }
-                }
-            }
-            if let chunk { result.append(chunk) }
-            if eof { break }
-        }
-        return result
-    }
+    // MARK: - PASV / EPSV parsers
 
-    // MARK: - PASV parser
+    // "229 Entering Extended Passive Mode (|||6446|)" — the character right after the
+    // opening parenthesis is the delimiter, and only the port field is filled in.
+    private func parseEPSV(_ response: String) throws -> Int {
+        guard let open = response.firstIndex(of: "("),
+              let close = response.lastIndex(of: ")"),
+              open < close else {
+            throw FTPSError.invalidResponse("EPSV-Format ungültig: \(response)")
+        }
+        let inner = response[response.index(after: open)..<close]
+        guard let delimiter = inner.first else {
+            throw FTPSError.invalidResponse("EPSV-Format ungültig: \(response)")
+        }
+        guard let portField = inner.split(separator: delimiter).last,
+              let port = Int(portField),
+              (1...65535).contains(port) else {
+            throw FTPSError.invalidResponse("EPSV-Port ungültig: \(response)")
+        }
+        return port
+    }
 
     private func parsePASV(_ response: String) throws -> (String, Int) {
         guard let open  = response.firstIndex(of: "("),
