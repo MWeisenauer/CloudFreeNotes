@@ -70,7 +70,10 @@ extension Note {
         var lines = body.components(separatedBy: "\n")
         guard lineIndex < lines.count, let parsed = ChecklistParser.parse(line: lines[lineIndex]) else { return }
         let prefix = parsed.isDone ? ChecklistParser.donePrefix : ChecklistParser.openPrefix
-        lines[lineIndex] = prefix + newText
+        // Eine Aufgabe ist genau eine Zeile. Das Textfeld bricht nur optisch um;
+        // ein getippter Umbruch wuerde die Aufgabe in zwei zerlegen.
+        let single = newText.replacingOccurrences(of: "\n", with: " ")
+        lines[lineIndex] = prefix + single
         body = lines.joined(separator: "\n")
     }
 

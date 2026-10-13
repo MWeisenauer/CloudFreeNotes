@@ -236,12 +236,14 @@ private struct ChecklistRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        // firstTextBaseline: Bei mehrzeiligen Aufgaben bleiben Griff, Kaestchen und
+        // Muelleimer auf Hoehe der ersten Zeile, statt mittig zu rutschen.
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             // Griff ganz links, der Muelleimer bleibt ganz rechts – so weit
             // auseinander wie die Zeile es zulaesst.
             Image(systemName: "line.3.horizontal")
                 .foregroundStyle(.tertiary)
-                .frame(width: 30, height: 34)
+                .frame(width: 30)
                 .contentShape(Rectangle())
                 // .global ist wichtig: Der Griff sitzt in der Zeile, die sich beim
                 // Ziehen mitbewegt. Im lokalen Raum schrumpft die gemeldete Strecke
@@ -260,7 +262,7 @@ private struct ChecklistRow: View {
             }
             .buttonStyle(.plain)
 
-            TextField("Aufgabe", text: $text)
+            TextField("Aufgabe", text: $text, axis: .vertical)
                 .focused($focus, equals: item.id)
                 .strikethrough(item.isDone, color: .secondary)
                 .foregroundStyle(item.isDone ? .secondary : .primary)
