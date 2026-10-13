@@ -212,6 +212,11 @@ private struct ChecklistRow: View {
                 .strikethrough(item.isDone, color: .secondary)
                 .foregroundStyle(item.isDone ? .secondary : .primary)
                 .onChange(of: text) { _, newValue in onTextChange(newValue) }
+                // Nach dem Loeschen rutschen die Zeilen hoch und SwiftUI verwendet die
+                // Ansichten wieder; ohne das hier bliebe der alte Text stehen.
+                .onChange(of: item.text) { _, newValue in
+                    if newValue != text { text = newValue }
+                }
 
             Button(action: onDelete) {
                 Image(systemName: "trash")
