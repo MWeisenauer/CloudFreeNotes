@@ -85,4 +85,20 @@ extension Note {
         lines.remove(at: lineIndex)
         body = lines.joined(separator: "\n")
     }
+
+    /// Verschiebt die Aufgabe um `steps` Plaetze (negativ = nach oben). Gezaehlt wird
+    /// in Aufgaben, nicht in Zeilen – Freitextzeilen dazwischen bleiben, wo sie sind.
+    mutating func moveTask(at lineIndex: Int, by steps: Int) {
+        guard steps != 0 else { return }
+        var lines = body.components(separatedBy: "\n")
+        guard lineIndex < lines.count, ChecklistParser.parse(line: lines[lineIndex]) != nil else { return }
+        let taskLines = lines.indices.filter { ChecklistParser.parse(line: lines[$0]) != nil }
+        guard let pos = taskLines.firstIndex(of: lineIndex) else { return }
+        let target = min(max(pos + steps, 0), taskLines.count - 1)
+        guard target != pos else { return }
+        let dest = taskLines[target]
+        let line = lines.remove(at: lineIndex)
+        lines.insert(line, at: dest)
+        body = lines.joined(separator: "\n")
+    }
 }
