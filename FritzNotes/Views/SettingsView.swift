@@ -38,7 +38,6 @@ struct SettingsView: View {
                         .autocorrectionDisabled()
                 }
                 Section("Verbindungsoptionen") {
-                    Toggle("Passiver Modus (PASV)", isOn: $settings.passiveMode)
                     Toggle("Selbstsignierten Zertifikaten vertrauen", isOn: $settings.trustSelfSignedCertificates)
                 }
                 Section {
